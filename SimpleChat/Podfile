@@ -1,0 +1,13 @@
+# Uncomment this line to define a global platform for your project
+# platform :ios, '6.0'
+
+target 'SimpleChat' do
+  pod 'CocoaAsyncSocket' 
+  pod 'Atlas', '~> 1.0.10'
+
+end
+
+target 'SimpleChatTests' do
+
+end
+

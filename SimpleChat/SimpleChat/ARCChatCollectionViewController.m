@@ -18,7 +18,8 @@
 #import "ATLConversationDataSource.h"
 #import "ATLMediaAttachment.h"
 #import "ATLLocationManager.h"
-
+#import "ARCSocketManager.h"
+#import "Member.h"
 
 @interface ARCChatCollectionViewController ()<UICollectionViewDataSource, UICollectionViewDelegate, ATLMessageInputToolbarDelegate, UIActionSheetDelegate, LYRQueryControllerDelegate, CLLocationManagerDelegate>
 
@@ -36,6 +37,9 @@
 @property (nonatomic) BOOL shouldShareLocation;
 @property (nonatomic) BOOL canDisableAddressBar;
 @property (nonatomic) dispatch_queue_t animationQueue;
+@property (nonatomic, strong) Member *member;
+
+@property (nonatomic, strong) ARCSocketManager *socketManager;
 
 @end
 
@@ -48,17 +52,17 @@ static NSString *const ATLDefaultPushAlertImage = @"sent you a photo.";
 static NSString *const ATLDefaultPushAlertLocation = @"sent you a location.";
 static NSString *const ATLDefaultPushAlertText = @"sent you a message.";
 
-+ (instancetype)conversationViewControllerWithLayerClient:(LYRClient *)layerClient;
++ (instancetype)conversationViewControllerWithSocketManager:(ARCSocketManager *)socketManager;
 {
-    NSAssert(layerClient, @"Layer Client cannot be nil");
-    return [[self alloc] initWithLayerClient:layerClient];
+    NSAssert(socketManager, @"Layer Client cannot be nil");
+    return [[self alloc] initWithSocketManager:socketManager];
 }
 
-- (instancetype)initWithLayerClient:(LYRClient *)layerClient
+- (instancetype)initWithSocketManager:(ARCSocketManager *)socketManager
 {
     self = [super init];
     if (self) {
-        _layerClient = layerClient;
+        self.socketManager = socketManager;
         [self lyr_commonInit];
     }
     return self;
@@ -101,12 +105,12 @@ static NSString *const ATLDefaultPushAlertText = @"sent you a message.";
     self.collectionView.dataSource = self;
 }
 
-- (void)setLayerClient:(LYRClient *)layerClient
+- (void)setLayerClient:(ARCSocketManager *)socketManager
 {
     if (self.hasAppeared) {
-        @throw [NSException exceptionWithName:NSInternalInconsistencyException reason:@"Layer Client cannot be set after the view has been presented" userInfo:nil];
+        @throw [NSException exceptionWithName:NSInternalInconsistencyException reason:@"Socket Manager cannot be set after the view has been presented" userInfo:nil];
     }
-    _layerClient = layerClient;
+    self.socketManager = socketManager;
 }
 
 #pragma mark - Lifecycle
@@ -114,9 +118,9 @@ static NSString *const ATLDefaultPushAlertText = @"sent you a message.";
 - (void)viewDidLoad
 {
     [super viewDidLoad];
-    if (!self.conversationDataSource) {
-        [self fetchLayerMessages];
-    }
+//    if (!self.conversationDataSource) {
+//        [self fetchLayerMessages];
+//    }
     [self configureControllerForConversation];
     self.messageInputToolbar.inputToolBarDelegate = self;
     self.addressBarController.delegate = self;
@@ -127,10 +131,10 @@ static NSString *const ATLDefaultPushAlertText = @"sent you a message.";
 - (void)viewWillAppear:(BOOL)animated
 {
     [super viewWillAppear:animated];
-    if (self.addressBarController && self.conversation.lastMessage && self.canDisableAddressBar) {
-        [self.addressBarController disable];
-        [self configureAddressBarForConversation];
-    }
+//    if (self.addressBarController && self.conversation.lastMessage && self.canDisableAddressBar) {
+//        [self.addressBarController disable];
+//        [self configureAddressBarForConversation];
+//    }
     
     self.canDisableAddressBar = YES;
     if (!self.hasAppeared) {
@@ -156,82 +160,82 @@ static NSString *const ATLDefaultPushAlertText = @"sent you a message.";
 
 #pragma mark - Conversation Data Source Setup
 
-- (void)setConversation:(LYRConversation *)conversation
-{
-    if (!conversation && !_conversation) return;
-    if ([conversation isEqual:_conversation]) return;
-    
-    _conversation = conversation;
-    
-    self.showingMoreMessagesIndicator = NO;
-    [self.typingParticipantIDs removeAllObjects];
-    [self updateTypingIndicatorOverlay:NO];
-    
-    // Set up the controller for the conversation
-    [self configureControllerForConversation];
-    [self configureAddressBarForChangedParticipants];
-    
-    if (conversation) {
-        [self fetchLayerMessages];
-    } else {
-        self.conversationDataSource = nil;
-        [self.collectionView reloadData];
-    }
-    CGSize contentSize = self.collectionView.collectionViewLayout.collectionViewContentSize;
-    [self.collectionView setContentOffset:[self bottomOffsetForContentSize:contentSize] animated:NO];
-}
+//- (void)setConversation:(LYRConversation *)conversation
+//{
+//    if (!conversation && !_conversation) return;
+//    if ([conversation isEqual:_conversation]) return;
+//    
+//    _conversation = conversation;
+//    
+//    self.showingMoreMessagesIndicator = NO;
+//    [self.typingParticipantIDs removeAllObjects];
+//    [self updateTypingIndicatorOverlay:NO];
+//    
+//    // Set up the controller for the conversation
+//    [self configureControllerForConversation];
+//    [self configureAddressBarForChangedParticipants];
+//    
+//    if (conversation) {
+//        [self fetchLayerMessages];
+//    } else {
+//        self.conversationDataSource = nil;
+//        [self.collectionView reloadData];
+//    }
+//    CGSize contentSize = self.collectionView.collectionViewLayout.collectionViewContentSize;
+//    [self.collectionView setContentOffset:[self bottomOffsetForContentSize:contentSize] animated:NO];
+//}
 
-- (void)fetchLayerMessages
-{
-    if (!self.conversation) return;
-    
-    LYRQuery *query = [LYRQuery queryWithQueryableClass:[LYRMessage class]];
-    query.predicate = [LYRPredicate predicateWithProperty:@"conversation" predicateOperator:LYRPredicateOperatorIsEqualTo value:self.conversation];
-    query.sortDescriptors = @[[NSSortDescriptor sortDescriptorWithKey:@"position" ascending:YES]];
-    
-    if ([self.dataSource respondsToSelector:@selector(conversationViewController:willLoadWithQuery:)]) {
-        query = [self.dataSource conversationViewController:self willLoadWithQuery:query];
-        if (![query isKindOfClass:[LYRQuery class]]){
-            @throw [NSException exceptionWithName:NSInvalidArgumentException reason:@"Data source must return an `LYRQuery` object." userInfo:nil];
-        }
-    }
-    
-    self.conversationDataSource = [ATLConversationDataSource dataSourceWithLayerClient:self.layerClient query:query];
-    self.conversationDataSource.queryController.delegate = self;
-    self.showingMoreMessagesIndicator = [self.conversationDataSource moreMessagesAvailable];
-    [self.collectionView reloadData];
-}
+//- (void)fetchLayerMessages
+//{
+//    if (!self.conversation) return;
+//    
+//    LYRQuery *query = [LYRQuery queryWithQueryableClass:[LYRMessage class]];
+//    query.predicate = [LYRPredicate predicateWithProperty:@"conversation" predicateOperator:LYRPredicateOperatorIsEqualTo value:self.conversation];
+//    query.sortDescriptors = @[[NSSortDescriptor sortDescriptorWithKey:@"position" ascending:YES]];
+//    
+//    if ([self.dataSource respondsToSelector:@selector(conversationViewController:willLoadWithQuery:)]) {
+//        query = [self.dataSource conversationViewController:self willLoadWithQuery:query];
+//        if (![query isKindOfClass:[LYRQuery class]]){
+//            @throw [NSException exceptionWithName:NSInvalidArgumentException reason:@"Data source must return an `LYRQuery` object." userInfo:nil];
+//        }
+//    }
+//    
+//    self.conversationDataSource = [ATLConversationDataSource dataSourceWithLayerClient:self.layerClient query:query];
+//    self.conversationDataSource.queryController.delegate = self;
+//    self.showingMoreMessagesIndicator = [self.conversationDataSource moreMessagesAvailable];
+//    [self.collectionView reloadData];
+//}
 
 #pragma mark - Conntroller Setup
 
 - (void)configureControllerForConversation
 {
     // Configure avatar image display
-    NSMutableSet *otherParticipantIDs = [self.conversation.participants mutableCopy];
-    if (self.layerClient.authenticatedUserID) [otherParticipantIDs removeObject:self.layerClient.authenticatedUserID];
-    self.shouldDisplayAvatarItem = (otherParticipantIDs.count > 1) ? YES : self.shouldDisplayAvatarItemForOneOtherParticipant;
+//    NSMutableSet *otherParticipantIDs = [self.conversation.participants mutableCopy];
+//    if (self.layerClient.authenticatedUserID) [otherParticipantIDs removeObject:self.layerClient.authenticatedUserID];
+//    self.shouldDisplayAvatarItem = (otherParticipantIDs.count > 1) ? YES : self.shouldDisplayAvatarItemForOneOtherParticipant;
     
     // Configure message bar button enablement
-    BOOL shouldEnableButton = self.conversation ? YES : NO;
+    BOOL shouldEnableButton = YES;
     self.messageInputToolbar.rightAccessoryButton.enabled = shouldEnableButton;
     self.messageInputToolbar.leftAccessoryButton.enabled = shouldEnableButton;
     
     // Mark all messages as read if needed
-    if (self.conversation.lastMessage) {
-        [self.conversation markAllMessagesAsRead:nil];
-    }
+//    if (self.conversation.lastMessage) {
+//        [self.conversation markAllMessagesAsRead:nil];
+//    }
 }
 
 - (void)configureAddressBarForConversation
 {
-    if (!self.dataSource) return;
-    if (!self.addressBarController) return;
-    
-    NSMutableOrderedSet *participantIdentifiers = [NSMutableOrderedSet orderedSetWithSet:self.conversation.participants];
-    if ([participantIdentifiers containsObject:self.layerClient.authenticatedUserID]) {
-        [participantIdentifiers removeObject:self.layerClient.authenticatedUserID];
-    }
-    [self.addressBarController setSelectedParticipants:[self participantsForIdentifiers:participantIdentifiers]];
+//    if (!self.dataSource) return;
+//    if (!self.addressBarController) return;
+//    
+//    NSMutableOrderedSet *participantIdentifiers = [NSMutableOrderedSet orderedSetWithSet:self.conversation.participants];
+//    if ([participantIdentifiers containsObject:self.layerClient.authenticatedUserID]) {
+//        [participantIdentifiers removeObject:self.layerClient.authenticatedUserID];
+//    }
+//    [self.addressBarController setSelectedParticipants:[self participantsForIdentifiers:participantIdentifiers]];
 }
 
 # pragma mark - UICollectionViewDataSource
@@ -403,7 +407,7 @@ static NSString *const ATLDefaultPushAlertText = @"sent you a message.";
 - (CGFloat)defaultCellHeightForItemAtIndexPath:(NSIndexPath *)indexPath
 {
     LYRMessage *message = [self.conversationDataSource messageAtCollectionViewIndexPath:indexPath];
-    if ([message.sender.userID isEqualToString:self.layerClient.authenticatedUserID]) {
+    if ([message.sender.userID isEqualToString:self.member.memberId]) {
         return [ATLOutgoingMessageCollectionViewCell cellHeightForMessage:message inView:self.view];
     } else {
         return [ATLIncomingMessageCollectionViewCell cellHeightForMessage:message inView:self.view];
@@ -429,10 +433,10 @@ static NSString *const ATLDefaultPushAlertText = @"sent you a message.";
 
 - (BOOL)shouldDisplaySenderLabelForSection:(NSUInteger)section
 {
-    if (self.conversation.participants.count <= 2) return NO;
+//    if (self.conversation.participants.count <= 2) return NO;
     
     LYRMessage *message = [self.conversationDataSource messageAtCollectionViewSection:section];
-    if ([message.sender.userID isEqualToString:self.layerClient.authenticatedUserID]) return NO;
+    if ([message.sender.userID isEqualToString:self.member.memberId]) return NO;
     
     if (section > ATLNumberOfSectionsBeforeFirstMessageSection) {
         LYRMessage *previousMessage = [self.conversationDataSource messageAtCollectionViewSection:section - 1];
@@ -451,7 +455,7 @@ static NSString *const ATLDefaultPushAlertText = @"sent you a message.";
     if (section != lastSection) return NO;
     
     LYRMessage *message = [self.conversationDataSource messageAtCollectionViewSection:section];
-    if (![message.sender.userID isEqualToString:self.layerClient.authenticatedUserID]) return NO;
+    if (![message.sender.userID isEqualToString:self.member.memberId]) return NO;
     
     return YES;
 }
@@ -476,7 +480,7 @@ static NSString *const ATLDefaultPushAlertText = @"sent you a message.";
     if (!self.shouldDisplayAvatarItem) return NO;
     
     LYRMessage *message = [self.conversationDataSource messageAtCollectionViewIndexPath:indexPath];
-    if ([message.sender.userID isEqualToString:self.layerClient.authenticatedUserID]) {
+    if ([message.sender.userID isEqualToString:self.member.memberId]) {
         return NO;
     }
     
@@ -506,12 +510,12 @@ static NSString *const ATLDefaultPushAlertText = @"sent you a message.";
 
 - (void)messageInputToolbar:(ATLMessageInputToolbar *)messageInputToolbar didTapRightAccessoryButton:(UIButton *)rightAccessoryButton
 {
-    if (!self.conversation) {
-        return;
-    }
+//    if (!self.conversation) {
+//        return;
+//    }
     NSOrderedSet *messages = [self messagesForMediaAttachments:messageInputToolbar.mediaAttachments];
     if (messages.count == 0) {
-        [self sendLocationMessage];
+        //[self sendLocationMessage];
     } else {
         for (LYRMessage *message in messages) {
             [self sendMessage:message];
@@ -522,14 +526,20 @@ static NSString *const ATLDefaultPushAlertText = @"sent you a message.";
 
 - (void)messageInputToolbarDidType:(ATLMessageInputToolbar *)messageInputToolbar
 {
-    if (!self.conversation) return;
-    [self.conversation sendTypingIndicator:LYRTypingDidBegin];
+//    if (!self.conversation) return;
+//    [self.conversation sendTypingIndicator:LYRTypingDidBegin];
+    
+#warning send typing began message here
+    
 }
 
 - (void)messageInputToolbarDidEndTyping:(ATLMessageInputToolbar *)messageInputToolbar
 {
-    if (!self.conversation) return;
-    [self.conversation sendTypingIndicator:LYRTypingDidFinish];
+//    if (!self.conversation) return;
+//    [self.conversation sendTypingIndicator:LYRTypingDidFinish];
+
+#warning send typing ended message here
+
 }
 
 #pragma mark - Message Sending
@@ -547,98 +557,102 @@ static NSString *const ATLDefaultPushAlertText = @"sent you a message.";
 
 - (LYRMessage *)messageForMessageParts:(NSArray *)parts MIMEType:(NSString *)MIMEType pushText:(NSString *)pushText;
 {
-    NSString *senderName = [[self participantForIdentifier:self.layerClient.authenticatedUserID] fullName];
-    NSString *completePushText;
-    if (!pushText) {
-        if ([MIMEType isEqualToString:ATLMIMETypeImageGIF]) {
-            completePushText = [NSString stringWithFormat:@"%@ %@", senderName, ATLDefaultPushAlertGIF];
-        } else if ([MIMEType isEqualToString:ATLMIMETypeImagePNG] || [MIMEType isEqualToString:ATLMIMETypeImageJPEG]) {
-            completePushText = [NSString stringWithFormat:@"%@ %@", senderName, ATLDefaultPushAlertImage];
-        } else if ([MIMEType isEqualToString:ATLMIMETypeLocation]) {
-            completePushText = [NSString stringWithFormat:@"%@ %@", senderName, ATLDefaultPushAlertLocation];
-        } else {
-            completePushText = [NSString stringWithFormat:@"%@ %@", senderName, ATLDefaultPushAlertText];
-        }
-    } else {
-        completePushText = [NSString stringWithFormat:@"%@: %@", senderName, pushText];
-    }
+//    NSString *senderName = [[self participantForIdentifier:self.layerClient.authenticatedUserID] fullName];
+//    NSString *completePushText;
+//    if (!pushText) {
+//        if ([MIMEType isEqualToString:ATLMIMETypeImageGIF]) {
+//            completePushText = [NSString stringWithFormat:@"%@ %@", senderName, ATLDefaultPushAlertGIF];
+//        } else if ([MIMEType isEqualToString:ATLMIMETypeImagePNG] || [MIMEType isEqualToString:ATLMIMETypeImageJPEG]) {
+//            completePushText = [NSString stringWithFormat:@"%@ %@", senderName, ATLDefaultPushAlertImage];
+//        } else if ([MIMEType isEqualToString:ATLMIMETypeLocation]) {
+//            completePushText = [NSString stringWithFormat:@"%@ %@", senderName, ATLDefaultPushAlertLocation];
+//        } else {
+//            completePushText = [NSString stringWithFormat:@"%@ %@", senderName, ATLDefaultPushAlertText];
+//        }
+//    } else {
+//        completePushText = [NSString stringWithFormat:@"%@: %@", senderName, pushText];
+//    }
+//    
+//    NSDictionary *pushOptions = @{LYRMessageOptionsPushNotificationAlertKey : completePushText,
+//                                  LYRMessageOptionsPushNotificationSoundNameKey : ATLPushNotificationSoundName};
+//    NSError *error;
+//    LYRMessage *message = [self.layerClient newMessageWithParts:parts options:pushOptions error:&error];
+//    if (error) {
+//        return nil;
+//    }
+//    return message;
     
-    NSDictionary *pushOptions = @{LYRMessageOptionsPushNotificationAlertKey : completePushText,
-                                  LYRMessageOptionsPushNotificationSoundNameKey : ATLPushNotificationSoundName};
-    NSError *error;
-    LYRMessage *message = [self.layerClient newMessageWithParts:parts options:pushOptions error:&error];
-    if (error) {
-        return nil;
-    }
-    return message;
+    LYRMessage *newEmptyMessage;
+
+    return newEmptyMessage;
 }
 
 - (void)sendMessage:(LYRMessage *)message
 {
-    NSError *error;
-    BOOL success = [self.conversation sendMessage:message error:&error];
-    if (success) {
-        [self notifyDelegateOfMessageSend:message];
-    } else {
-        [self notifyDelegateOfMessageSendFailure:message error:error];
-    }
+//    NSError *error;
+//    BOOL success = [self.conversation sendMessage:message error:&error];
+//    if (success) {
+//        [self notifyDelegateOfMessageSend:message];
+//    } else {
+//        [self notifyDelegateOfMessageSendFailure:message error:error];
+//    }
 }
 
-#pragma mark - Location Message
-
-- (void)sendLocationMessage
-{
-    self.shouldShareLocation = YES;
-    if (!self.locationManager) {
-        self.locationManager = [[ATLLocationManager alloc] init];
-        self.locationManager.delegate = self;
-        if ([self.locationManager respondsToSelector:@selector(requestWhenInUseAuthorization)]) {
-            [self.locationManager requestWhenInUseAuthorization];
-        }
-    }
-    if ([self.locationManager locationServicesEnabled]) {
-        [self.locationManager startUpdatingLocation];
-    }
-}
-
-- (void)locationManager:(CLLocationManager *)manager didUpdateLocations:(NSArray *)locations
-{
-    if (!self.shouldShareLocation) return;
-    if (locations.firstObject) {
-        self.shouldShareLocation = NO;
-        [self sendMessageWithLocation:locations.firstObject];
-        [self.locationManager stopUpdatingLocation];
-    }
-}
-
-- (void)sendMessageWithLocation:(CLLocation *)location
-{
-    ATLMediaAttachment *attachement = [ATLMediaAttachment mediaAttachmentWithLocation:location];
-    LYRMessage *message = [self messageForMessageParts:ATLMessagePartsWithMediaAttachment(attachement) MIMEType:ATLMIMETypeLocation pushText:nil];
-    [self sendMessage:message];
-}
-
-#pragma mark - UIActionSheetDelegate
-
-- (void)actionSheet:(UIActionSheet *)actionSheet didDismissWithButtonIndex:(NSInteger)buttonIndex
-{
-    switch (buttonIndex) {
-        case 0:
-            [self displayImagePickerWithSourceType:UIImagePickerControllerSourceTypeCamera];
-            break;
-            
-        case 1:
-            [self captureLastPhotoTaken];
-            break;
-            
-        case 2:
-            [self displayImagePickerWithSourceType:UIImagePickerControllerSourceTypePhotoLibrary];
-            break;
-            
-        default:
-            break;
-    }
-}
+//#pragma mark - Location Message
+//
+//- (void)sendLocationMessage
+//{
+//    self.shouldShareLocation = YES;
+//    if (!self.locationManager) {
+//        self.locationManager = [[ATLLocationManager alloc] init];
+//        self.locationManager.delegate = self;
+//        if ([self.locationManager respondsToSelector:@selector(requestWhenInUseAuthorization)]) {
+//            [self.locationManager requestWhenInUseAuthorization];
+//        }
+//    }
+//    if ([self.locationManager locationServicesEnabled]) {
+//        [self.locationManager startUpdatingLocation];
+//    }
+//}
+//
+//- (void)locationManager:(CLLocationManager *)manager didUpdateLocations:(NSArray *)locations
+//{
+//    if (!self.shouldShareLocation) return;
+//    if (locations.firstObject) {
+//        self.shouldShareLocation = NO;
+//        [self sendMessageWithLocation:locations.firstObject];
+//        [self.locationManager stopUpdatingLocation];
+//    }
+//}
+//
+//- (void)sendMessageWithLocation:(CLLocation *)location
+//{
+//    ATLMediaAttachment *attachement = [ATLMediaAttachment mediaAttachmentWithLocation:location];
+//    LYRMessage *message = [self messageForMessageParts:ATLMessagePartsWithMediaAttachment(attachement) MIMEType:ATLMIMETypeLocation pushText:nil];
+//    [self sendMessage:message];
+//}
+//
+//#pragma mark - UIActionSheetDelegate
+//
+//- (void)actionSheet:(UIActionSheet *)actionSheet didDismissWithButtonIndex:(NSInteger)buttonIndex
+//{
+//    switch (buttonIndex) {
+//        case 0:
+//            [self displayImagePickerWithSourceType:UIImagePickerControllerSourceTypeCamera];
+//            break;
+//            
+//        case 1:
+//            [self captureLastPhotoTaken];
+//            break;
+//            
+//        case 2:
+//            [self displayImagePickerWithSourceType:UIImagePickerControllerSourceTypePhotoLibrary];
+//            break;
+//            
+//        default:
+//            break;
+//    }
+//}
 
 #pragma mark - Image Picking
 
@@ -705,9 +719,9 @@ static NSString *const ATLDefaultPushAlertText = @"sent you a message.";
 
 - (void)didReceiveTypingIndicator:(NSNotification *)notification
 {
-    if (!self.conversation) return;
+//    if (!self.conversation) return;
     if (!notification.object) return;
-    if (![notification.object isEqual:self.conversation]) return;
+//    if (![notification.object isEqual:self.conversation]) return;
     
     NSString *participantID = notification.userInfo[LYRTypingIndicatorParticipantUserInfoKey];
     NSNumber *statusNumber = notification.userInfo[LYRTypingIndicatorValueUserInfoKey];
@@ -722,32 +736,32 @@ static NSString *const ATLDefaultPushAlertText = @"sent you a message.";
 
 - (void)layerClientObjectsDidChange:(NSNotification *)notification
 {
-    if (!self.conversation) return;
-    if (!self.layerClient) return;
-    if (!notification.object) return;
-    if (![notification.object isEqual:self.layerClient]) return;
-    
-    NSArray *changes = notification.userInfo[LYRClientObjectChangesUserInfoKey];
-    for (LYRObjectChange *change in changes) {
-        if (![change.object isEqual:self.conversation]) {
-            continue;
-        }
-        if (change.type == LYRObjectChangeTypeUpdate && [change.property isEqualToString:@"participants"]) {
-            [self configureControllerForChangedParticipants];
-            break;
-        }
-    }
+//    if (!self.conversation) return;
+//    if (!self.layerClient) return;
+//    if (!notification.object) return;
+//    if (![notification.object isEqual:self.layerClient]) return;
+//    
+//    NSArray *changes = notification.userInfo[LYRClientObjectChangesUserInfoKey];
+//    for (LYRObjectChange *change in changes) {
+//        if (![change.object isEqual:self.conversation]) {
+//            continue;
+//        }
+//        if (change.type == LYRObjectChangeTypeUpdate && [change.property isEqualToString:@"participants"]) {
+//            [self configureControllerForChangedParticipants];
+//            break;
+//        }
+//    }
 }
 
 - (void)handleApplicationWillEnterForeground:(NSNotification *)notification
 {
-    if (self.conversation) {
-        NSError *error;
-        BOOL success = [self.conversation markAllMessagesAsRead:&error];
-        if (!success) {
-            NSLog(@"Failed to mark all messages as read with error: %@", error);
-        }
-    }
+//    if (self.conversation) {
+//        NSError *error;
+//        BOOL success = [self.conversation markAllMessagesAsRead:&error];
+//        if (!success) {
+//            NSLog(@"Failed to mark all messages as read with error: %@", error);
+//        }
+//    }
 }
 
 #pragma mark - Typing Indicator
@@ -772,19 +786,19 @@ static NSString *const ATLDefaultPushAlertText = @"sent you a message.";
 
 - (void)configureControllerForChangedParticipants
 {
-    if (self.addressBarController && ![self.addressBarController isDisabled]) {
-        [self configureConversationForAddressBar];
-        return;
-    }
-    NSMutableSet *removedParticipantIdentifiers = [NSMutableSet setWithArray:[self.typingParticipantIDs array]];
-    if (removedParticipantIdentifiers.count) {
-        [removedParticipantIdentifiers minusSet:self.conversation.participants];
-        [self.typingParticipantIDs removeObjectsInArray:removedParticipantIdentifiers.allObjects];
-        [self updateTypingIndicatorOverlay:NO];
-    }
-    [self configureAddressBarForChangedParticipants];
-    [self configureControllerForConversation];
-    [self.collectionView reloadData];
+//    if (self.addressBarController && ![self.addressBarController isDisabled]) {
+//        [self configureConversationForAddressBar];
+//        return;
+//    }
+//    NSMutableSet *removedParticipantIdentifiers = [NSMutableSet setWithArray:[self.typingParticipantIDs array]];
+//    if (removedParticipantIdentifiers.count) {
+//        [removedParticipantIdentifiers minusSet:self.conversation.participants];
+//        [self.typingParticipantIDs removeObjectsInArray:removedParticipantIdentifiers.allObjects];
+//        [self updateTypingIndicatorOverlay:NO];
+//    }
+//    [self configureAddressBarForChangedParticipants];
+//    [self configureControllerForConversation];
+//    [self.collectionView reloadData];
 }
 
 #pragma mark - Device Rotation
@@ -859,49 +873,49 @@ static NSString *const ATLDefaultPushAlertText = @"sent you a message.";
 
 - (void)configureConversationForAddressBar
 {
-    NSSet *participants = self.addressBarController.selectedParticipants.set;
-    NSSet *participantIdentifiers = [participants valueForKey:@"participantIdentifier"];
-    
-    if (!participantIdentifiers && !self.conversation.participants) return;
-    
-    NSString *authenticatedUserID = self.layerClient.authenticatedUserID;
-    NSMutableSet *conversationParticipantsCopy = [self.conversation.participants mutableCopy];
-    if ([conversationParticipantsCopy containsObject:authenticatedUserID]) {
-        [conversationParticipantsCopy removeObject:authenticatedUserID];
-    }
-    if ([participantIdentifiers isEqual:conversationParticipantsCopy]) return;
-    
-    LYRConversation *conversation = [self conversationWithParticipants:participants];
-    self.conversation = conversation;
+//    NSSet *participants = self.addressBarController.selectedParticipants.set;
+//    NSSet *participantIdentifiers = [participants valueForKey:@"participantIdentifier"];
+//    
+//    if (!participantIdentifiers && !self.conversation.participants) return;
+//    
+//    NSString *authenticatedUserID = self.layerClient.authenticatedUserID;
+//    NSMutableSet *conversationParticipantsCopy = [self.conversation.participants mutableCopy];
+//    if ([conversationParticipantsCopy containsObject:authenticatedUserID]) {
+//        [conversationParticipantsCopy removeObject:authenticatedUserID];
+//    }
+//    if ([participantIdentifiers isEqual:conversationParticipantsCopy]) return;
+//    
+//    LYRConversation *conversation = [self conversationWithParticipants:participants];
+//    self.conversation = conversation;
 }
 
 #pragma mark - Address Bar Configuration
 
 - (void)configureAddressBarForChangedParticipants
 {
-    if (!self.addressBarController) return;
-    
-    NSOrderedSet *existingParticipants = self.addressBarController.selectedParticipants;
-    NSOrderedSet *existingParticipantIdentifiers = [existingParticipants valueForKey:@"participantIdentifier"];
-    
-    if (!existingParticipantIdentifiers && !self.conversation.participants) return;
-    if ([existingParticipantIdentifiers.set isEqual:self.conversation.participants]) return;
-    
-    NSMutableOrderedSet *removedIdentifiers = [NSMutableOrderedSet orderedSetWithOrderedSet:existingParticipantIdentifiers];
-    [removedIdentifiers minusSet:self.conversation.participants];
-    
-    NSMutableOrderedSet *addedIdentifiers = [NSMutableOrderedSet orderedSetWithSet:self.conversation.participants];
-    [addedIdentifiers minusOrderedSet:existingParticipantIdentifiers];
-    
-    NSString *authenticatedUserID = self.layerClient.authenticatedUserID;
-    if (authenticatedUserID) [addedIdentifiers removeObject:authenticatedUserID];
-    
-    NSMutableOrderedSet *participantIdentifiers = [NSMutableOrderedSet orderedSetWithOrderedSet:existingParticipantIdentifiers];
-    [participantIdentifiers minusOrderedSet:removedIdentifiers];
-    [participantIdentifiers unionOrderedSet:addedIdentifiers];
-    
-    NSOrderedSet *participants = [self participantsForIdentifiers:participantIdentifiers];
-    self.addressBarController.selectedParticipants = participants;
+//    if (!self.addressBarController) return;
+//    
+//    NSOrderedSet *existingParticipants = self.addressBarController.selectedParticipants;
+//    NSOrderedSet *existingParticipantIdentifiers = [existingParticipants valueForKey:@"participantIdentifier"];
+//    
+//    if (!existingParticipantIdentifiers && !self.conversation.participants) return;
+//    if ([existingParticipantIdentifiers.set isEqual:self.conversation.participants]) return;
+//    
+//    NSMutableOrderedSet *removedIdentifiers = [NSMutableOrderedSet orderedSetWithOrderedSet:existingParticipantIdentifiers];
+//    [removedIdentifiers minusSet:self.conversation.participants];
+//    
+//    NSMutableOrderedSet *addedIdentifiers = [NSMutableOrderedSet orderedSetWithSet:self.conversation.participants];
+//    [addedIdentifiers minusOrderedSet:existingParticipantIdentifiers];
+//    
+//    NSString *authenticatedUserID = self.layerClient.authenticatedUserID;
+//    if (authenticatedUserID) [addedIdentifiers removeObject:authenticatedUserID];
+//    
+//    NSMutableOrderedSet *participantIdentifiers = [NSMutableOrderedSet orderedSetWithOrderedSet:existingParticipantIdentifiers];
+//    [participantIdentifiers minusOrderedSet:removedIdentifiers];
+//    [participantIdentifiers unionOrderedSet:addedIdentifiers];
+//    
+//    NSOrderedSet *participants = [self participantsForIdentifiers:participantIdentifiers];
+//    self.addressBarController.selectedParticipants = participants;
 }
 
 #pragma mark - Public Methods
@@ -969,33 +983,33 @@ static NSString *const ATLDefaultPushAlertText = @"sent you a message.";
 
 - (void)notifyDelegateOfMessageSend:(LYRMessage *)message
 {
-    if ([self.delegate respondsToSelector:@selector(conversationViewController:didSendMessage:)]) {
-        [self.delegate conversationViewController:self didSendMessage:message];
-    }
+//    if ([self.delegate respondsToSelector:@selector(conversationViewController:didSendMessage:)]) {
+//        [self.delegate conversationViewController:self didSendMessage:message];
+//    }
 }
 
 - (void)notifyDelegateOfMessageSendFailure:(LYRMessage *)message error:(NSError *)error
 {
-    if ([self.delegate respondsToSelector:@selector(conversationViewController:didFailSendingMessage:error:)]) {
-        [self.delegate conversationViewController:self didFailSendingMessage:message error:error];
-    }
+//    if ([self.delegate respondsToSelector:@selector(conversationViewController:didFailSendingMessage:error:)]) {
+//        [self.delegate conversationViewController:self didFailSendingMessage:message error:error];
+//    }
 }
 
 - (void)notifyDelegateOfMessageSelection:(LYRMessage *)message
 {
-    if ([self.delegate respondsToSelector:@selector(conversationViewController:didSelectMessage:)]) {
-        [self.delegate conversationViewController:self didSelectMessage:message];
-    }
+//    if ([self.delegate respondsToSelector:@selector(conversationViewController:didSelectMessage:)]) {
+//        [self.delegate conversationViewController:self didSelectMessage:message];
+//    }
 }
 
 - (CGSize)heightForMessageAtIndexPath:(NSIndexPath *)indexPath
 {
     CGFloat width = self.collectionView.bounds.size.width;
     CGFloat height = 0;
-    if ([self.delegate respondsToSelector:@selector(conversationViewController:heightForMessage:withCellWidth:)]) {
-        LYRMessage *message = [self.conversationDataSource messageAtCollectionViewIndexPath:indexPath];
-        height = [self.delegate conversationViewController:self heightForMessage:message withCellWidth:width];
-    }
+//    if ([self.delegate respondsToSelector:@selector(conversationViewController:heightForMessage:withCellWidth:)]) {
+//        LYRMessage *message = [self.conversationDataSource messageAtCollectionViewIndexPath:indexPath];
+//        height = [self.delegate conversationViewController:self heightForMessage:message withCellWidth:width];
+//    }
     if (!height) {
         height = [self defaultCellHeightForItemAtIndexPath:indexPath];
     }
@@ -1005,11 +1019,11 @@ static NSString *const ATLDefaultPushAlertText = @"sent you a message.";
 - (NSOrderedSet *)messagesForMediaAttachments:(NSArray *)mediaAttachments
 {
     NSOrderedSet *messages;
-    if ([self.delegate respondsToSelector:@selector(conversationViewController:messagesForMediaAttachments:)]) {
-        messages = [self.delegate conversationViewController:self messagesForMediaAttachments:mediaAttachments];
-        // If delegate returns an empty set, don't send any messages.
-        if (messages && !messages.count) return nil;
-    }
+//    if ([self.delegate respondsToSelector:@selector(conversationViewController:messagesForMediaAttachments:)]) {
+//        messages = [self.delegate conversationViewController:self messagesForMediaAttachments:mediaAttachments];
+//        // If delegate returns an empty set, don't send any messages.
+//        if (messages && !messages.count) return nil;
+//    }
     // If delegate returns nil, we fall back to default behavior.
     if (!messages) messages = [self defaultMessagesForMediaAttachments:mediaAttachments];
     return messages;
@@ -1017,14 +1031,14 @@ static NSString *const ATLDefaultPushAlertText = @"sent you a message.";
 
 #pragma mark - Data Source
 
-- (id<ATLParticipant>)participantForIdentifier:(NSString *)identifier
-{
-    if ([self.dataSource respondsToSelector:@selector(conversationViewController:participantForIdentifier:)]) {
-        return [self.dataSource conversationViewController:self participantForIdentifier:identifier];
-    } else {
-        @throw [NSException exceptionWithName:NSInternalInconsistencyException reason:@"ATLConversationViewControllerDelegate must return a participant for an identifier" userInfo:nil];
-    }
-}
+//- (id<ATLParticipant>)participantForIdentifier:(NSString *)identifier
+//{
+//    if ([self.dataSource respondsToSelector:@selector(conversationViewController:participantForIdentifier:)]) {
+//        return [self.dataSource conversationViewController:self participantForIdentifier:identifier];
+//    } else {
+//        @throw [NSException exceptionWithName:NSInternalInconsistencyException reason:@"ATLConversationViewControllerDelegate must return a participant for an identifier" userInfo:nil];
+//    }
+//}
 
 - (NSAttributedString *)attributedStringForMessageDate:(LYRMessage *)message
 {

@@ -18,6 +18,7 @@
 		BE6B95611B7BE8AD00D22EAC /* ChatClientViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = BE6B95601B7BE8AD00D22EAC /* ChatClientViewController.m */; };
 		BE6B95A71B7CE1BA00D22EAC /* ARCSocketManager.m in Sources */ = {isa = PBXBuildFile; fileRef = BE6B95A61B7CE1BA00D22EAC /* ARCSocketManager.m */; };
 		BE6B95AA1B7D3AFA00D22EAC /* ARCChatCollectionViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = BE6B95A91B7D3AFA00D22EAC /* ARCChatCollectionViewController.m */; };
+		BE6B95AD1B7D455900D22EAC /* Member.m in Sources */ = {isa = PBXBuildFile; fileRef = BE6B95AC1B7D455900D22EAC /* Member.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -52,6 +53,8 @@
 		BE6B95A61B7CE1BA00D22EAC /* ARCSocketManager.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = ARCSocketManager.m; sourceTree = "<group>"; };
 		BE6B95A81B7D3AFA00D22EAC /* ARCChatCollectionViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ARCChatCollectionViewController.h; sourceTree = "<group>"; };
 		BE6B95A91B7D3AFA00D22EAC /* ARCChatCollectionViewController.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = ARCChatCollectionViewController.m; sourceTree = "<group>"; };
+		BE6B95AB1B7D455900D22EAC /* Member.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = Member.h; sourceTree = "<group>"; };
+		BE6B95AC1B7D455900D22EAC /* Member.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = Member.m; sourceTree = "<group>"; };
 		BF7FACE1CBBEFD452D2413F4 /* libPods-SimpleChat.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-SimpleChat.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -119,6 +122,8 @@
 				BE6B95A61B7CE1BA00D22EAC /* ARCSocketManager.m */,
 				BE6B95A81B7D3AFA00D22EAC /* ARCChatCollectionViewController.h */,
 				BE6B95A91B7D3AFA00D22EAC /* ARCChatCollectionViewController.m */,
+				BE6B95AB1B7D455900D22EAC /* Member.h */,
+				BE6B95AC1B7D455900D22EAC /* Member.m */,
 			);
 			path = SimpleChat;
 			sourceTree = "<group>";
@@ -297,6 +302,7 @@
 				BE6B953F1B7BE79600D22EAC /* AppDelegate.m in Sources */,
 				BE6B953C1B7BE79600D22EAC /* main.m in Sources */,
 				BE6B95AA1B7D3AFA00D22EAC /* ARCChatCollectionViewController.m in Sources */,
+				BE6B95AD1B7D455900D22EAC /* Member.m in Sources */,
 				BE6B95A71B7CE1BA00D22EAC /* ARCSocketManager.m in Sources */,
 				BE6B95611B7BE8AD00D22EAC /* ChatClientViewController.m in Sources */,
 			);
